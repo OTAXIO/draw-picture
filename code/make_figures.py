@@ -1,14 +1,14 @@
 """用真实数据重绘 Figure 1（跨 batch 低秩）与 Figure 2（固定 B0 的捕获率），每个子图单独输出。
 
-    python make_figures.py                                   # 默认：vivid 配色，子图 c 用 diverge
+    python make_figures.py                                   # 默认：vivid 配色，生成四张 V_2 小图
     python make_figures.py --style morandi --panel-c outline # 换配色 / 换子图 c 画法
     python make_figures.py --labels                          # 小图左上角加 a / b / c
     python make_figures.py --options                         # 额外生成子图 c 九种画法的对比页
 
 输出：
-    figures/fig1/{pdf,svg,png}/fig1a, fig1b, fig1c
-    figures/fig2/{pdf,svg,png}/fig2a, fig2b
-    figures/options/...（仅 --options）
+    figures/V_2/fig1/{pdf,svg,png}/fig1a, fig1b
+    figures/V_2/fig2/{pdf,svg,png}/fig2a, fig2b
+    figures/V_2/options/...（仅 --options）
 pdf、svg 为矢量图，png 为 300 dpi 预览。
 """
 import argparse
@@ -18,6 +18,7 @@ import numpy as np
 from matplotlib.colors import ListedColormap, LogNorm, Normalize, TwoSlopeNorm
 from matplotlib.patches import FancyBboxPatch, Rectangle
 from matplotlib.gridspec import GridSpec
+from matplotlib.ticker import NullLocator
 
 from bilozo_data import MODULE_LABELS, N_LAYERS, energy_grid, load_capture, load_spectra
 from bilozo_style import FIG_DIR, GROUPS, STYLES, panel_label, save, use_style
@@ -290,7 +291,7 @@ PANEL_C_ZH = {"heat": "heat  改进热力图：色阶从最小值起，低于 τ
 
 # ---------------------------------------------------------------- 单张小图
 # 每个子图单独成一张图。绘图区（坐标轴本身）的尺寸固定，几张图在 LaTeX 里并排时大小一致。
-FIG1_AX = (1.6, 1.5)    # Figure 1 每个子图的绘图区宽、高（英寸）
+FIG1_AX = (1.95, 1.45)  # Figure 1 每个子图的绘图区宽、高（英寸）
 FIG2_AX = (2.6, 1.6)    # Figure 2 每个子图的绘图区宽、高（英寸）
 
 
@@ -308,17 +309,30 @@ def _label(ax, S, letter, x):
         panel_label(ax, letter, S, x=x)
 
 
+def _matrix_distribution(ax, k, values, S):
+    """Show every matrix and its descriptive pointwise distribution."""
+    q25, median, q75 = np.quantile(values, [0.25, 0.5, 0.75], axis=0)
+    for row in values:
+        ax.plot(k, row, color=S.gray, lw=0.32, alpha=0.23)
+    ax.fill_between(k, q25, q75, color=S.main, alpha=0.13, linewidth=0)
+    ax.plot(k, median, color=S.main, lw=1.5, label="Matrix median")
+    ax.set_xlim(1, k[-1] + 2)
+    ax.set_xticks([1, 32, 64, 96, 128])
+    return median
+
+
 def fig1a(spectra, S, letter=None):
     """Figure 1a：各矩阵的归一化奇异值谱，粗线为中位数。"""
     fig, ax = _single(FIG1_AX)
     sv = np.array([d["sv"] / d["sv"][0] for d in spectra.values()])
     k = np.arange(1, sv.shape[1] + 1)
-    for row in sv:
-        ax.semilogy(k, row, color=S.gray, lw=0.3, alpha=0.6)
-    ax.semilogy(k, np.median(sv, axis=0), color=S.main, lw=1.5)
-    ax.set_xlabel("Singular-value index k"); ax.set_ylabel(r"$\sigma_k/\sigma_1$")
-    ax.set_title("Cross-batch singular spectrum")
-    ax.set_xlim(0, k[-1] + 1)
+    ax.set_yscale("log")
+    ax.yaxis.set_minor_locator(NullLocator())
+    _matrix_distribution(ax, k, sv, S)
+    ax.tick_params(axis="y", labelsize=7.3)
+    ax.legend(loc="upper right", handlelength=1.25)
+    ax.set_xlabel("Singular-value index k"); ax.set_ylabel(r"$\sigma_k/\sigma_1$", fontsize=7.3)
+    ax.set_title("Singular-value spectrum", loc="left")
     _label(ax, S, letter, -0.3)
     return fig
 
@@ -328,15 +342,19 @@ def fig1b(spectra, S, letter=None):
     fig, ax = _single(FIG1_AX)
     cum = np.array([d["cum"] for d in spectra.values()])
     k = np.arange(1, cum.shape[1] + 1)
-    for row in cum:
-        ax.plot(k, row, color=S.gray, lw=0.3, alpha=0.6)
-    ax.plot(k, np.median(cum, axis=0), color=S.main, lw=1.5, label="Median over matrices")
+    median = _matrix_distribution(ax, k, cum, S)
+    at_rank = cum[:, RANK - 1]
+    reached = np.count_nonzero(at_rank >= TAU)
     ax.axhline(TAU, color=S.ref, lw=0.6, ls=":")
-    ax.axvline(RANK, color=S.accent, lw=0.9, ls="--", label=f"Left rank {RANK}")
+    ax.axvline(RANK, color=S.accent, lw=0.7, ls="--", zorder=1)
+    ax.plot(RANK, median[RANK - 1], "o", color=S.main, ms=3, zorder=4)
+    ax.text(126, TAU - 0.035, "90% threshold", ha="right", va="top", fontsize=6.5)
+    ax.text(39, 0.38, f"Median E(32): {median[RANK - 1]:.2%}", fontsize=7)
+    ax.text(39, 0.24, f"{reached}/{len(at_rank)} reach 90%", fontsize=7)
+    ax.text(39, 0.13, "at rank 32", fontsize=7)
     ax.set_xlabel("Left rank k"); ax.set_ylabel("Cumulative energy")
-    ax.set_title("Cumulative energy")
-    ax.set_xlim(0, k[-1] + 1); ax.set_ylim(0, 1.02)
-    ax.legend(loc="lower right")
+    ax.set_title("Cumulative energy", loc="left")
+    ax.set_ylim(0, 1.055)
     _label(ax, S, letter, -0.3)
     return fig
 
@@ -357,17 +375,24 @@ def fig2a(cap, S, letter=None):
     steps = cap["steps"]
     mk = slice(1, None)          # 从第二个点（step=1000）开始画标记
     for row in cap["layer"]:
-        ax.plot(steps, row, color=S.gray, lw=0.45)
-    ax.plot(steps, cap["glob"], color=S.main, lw=1.5, marker="o", ms=2.5, markevery=mk,
-            label="Energy-weighted (all Linear)")
-    ax.plot(steps, cap["med"], color=S.accent, lw=1.1, ls=":", marker="s", ms=2.2, markevery=mk,
-            label="Median matrix")
-    ax.plot(steps, cap["rand"], color=S.ref, lw=0.8, ls="--", label=f"Random rank-{RANK} (expected)")
-    ax.plot([], [], color=S.gray, lw=0.8, label="Individual layers")
-    ax.set_xlabel("Optimizer step"); ax.set_ylabel(r"Gradient capture $\rho_t$")
-    ax.set_title(r"Fixed initialization subspace $B_0$")
-    ax.set_ylim(0, 1.02); ax.set_xlim(-400, steps[-1] + 400)
-    ax.legend(loc="upper right", frameon=True, facecolor="white", edgecolor="none", framealpha=0.9)
+        ax.plot(steps, row, color=S.gray, lw=0.35, alpha=0.45)
+    ax.plot(steps, cap["glob"], color=S.main, lw=1.5, marker="o", ms=2.5, markevery=mk)
+    ax.plot(steps, cap["med"], color=S.accent, lw=1.1, ls="--", marker="s", ms=2.2, markevery=mk)
+    ax.plot(steps, cap["rand"], color=S.ref, lw=0.7, ls="--")
+    for key, name, color, offset in (
+        ("med", "Matrix median", S.accent, 0),
+        ("glob", "Energy-weighted", S.main, 0),
+        ("rand", "Random expectation", S.ref, 5),
+    ):
+        value = cap[key][-1]
+        ax.annotate(f"{name}\n{value:.1%}", (steps[-1], value),
+                    xytext=(9, offset), textcoords="offset points", va="center",
+                    fontsize=6.5, annotation_clip=False,
+                    arrowprops=dict(arrowstyle="-", color=color, lw=0.6))
+    ax.set_xlabel("Optimizer step"); ax.set_ylabel(r"Gradient capture $\rho_t$", fontsize=7.3)
+    ax.set_title(r"Fixed initialization subspace $B_0$", loc="left")
+    ax.set_ylim(0, 1); ax.set_xlim(-400, steps[-1] + 400)
+    ax.set_xticks([0, 5000, 10000, 15000, 20000], ["0", "5k", "10k", "15k", "20k"])
     _label(ax, S, letter, -0.14)
     return fig
 
@@ -376,14 +401,18 @@ def fig2b(cap, S, letter=None):
     """Figure 2b：逐层捕获率热力图（层 × 训练步）。"""
     fig, ax = _single(FIG2_AX)
     steps = cap["steps"]
-    im = ax.pcolormesh(np.arange(len(steps) + 1), np.arange(N_LAYERS + 1), cap["layer"],
-                       cmap=S.seq, norm=Normalize(0, 1), edgecolors="face", linewidth=0.2)
-    idx = np.arange(0, len(steps), 5)
-    ax.set_xticks(idx + 0.5, [f"{steps[i] // 1000}k" if steps[i] > 1 else "0" for i in idx])
+    midpoints = (steps[:-1] + steps[1:]) / 2
+    edges = np.r_[2 * steps[0] - midpoints[0], midpoints, 2 * steps[-1] - midpoints[-1]]
+    im = ax.pcolormesh(edges, np.arange(N_LAYERS + 1), cap["layer"],
+                       cmap=_truncate(S.seq, 0.90), norm=Normalize(0, 1),
+                       shading="flat", edgecolors="face", linewidth=0.1)
+    ticks = steps[::5]
+    ax.set_xticks(ticks, [f"{step // 1000}k" if step >= 1000 else str(step) for step in ticks])
     _layer_ticks(ax); _heat_axes(ax)
     ax.set_xlabel("Optimizer step")
-    ax.set_title("Per-layer energy-weighted capture")
-    _colorbar(fig, ax, im, r"$\rho_t$", ticks=[0, 0.25, 0.5, 0.75, 1])
+    ax.set_title("Capture by decoder layer", loc="left")
+    colorbar = _colorbar(fig, ax, im, r"$\rho_t$", ticks=[0, 0.25, 0.5, 0.75, 1])
+    colorbar.ax.yaxis.label.set_fontsize(7.3)
     _label(ax, S, letter, -0.14)
     return fig
 
@@ -406,7 +435,7 @@ def options_sheet(spectra, S):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--style", choices=list(STYLES), default="vivid")
-    p.add_argument("--panel-c", choices=list(PANEL_C), default="diverge")
+    p.add_argument("--panel-c", choices=list(PANEL_C), help="额外生成指定画法的 Figure 1c")
     p.add_argument("--labels", action="store_true", help="在每张小图左上角写 a / b / c")
     p.add_argument("--options", action="store_true", help="额外生成子图 c 九种画法的对比页")
     a = p.parse_args()
@@ -414,14 +443,15 @@ def main():
     S = use_style(a.style)
     lab = (lambda c: c) if a.labels else (lambda c: None)
 
-    d1, d2 = FIG_DIR / "fig1", FIG_DIR / "fig2"
+    d1, d2 = FIG_DIR / "V_2" / "fig1", FIG_DIR / "V_2" / "fig2"
     save(fig1a(spectra, S, lab("a")), "fig1a", d1)
     save(fig1b(spectra, S, lab("b")), "fig1b", d1)
-    save(fig1c(spectra, S, a.panel_c, lab("c")), "fig1c", d1)
+    if a.panel_c:
+        save(fig1c(spectra, S, a.panel_c, lab("c")), "fig1c", d1)
     save(fig2a(cap, S, lab("a")), "fig2a", d2)
     save(fig2b(cap, S, lab("b")), "fig2b", d2)
     if a.options:
-        save(options_sheet(spectra, S), f"fig1c_options_{a.style}", FIG_DIR / "options")
+        save(options_sheet(spectra, S), f"fig1c_options_{a.style}", FIG_DIR / "V_2" / "options")
     print("done")
 
 
