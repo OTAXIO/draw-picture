@@ -413,7 +413,7 @@ def fig2a(cap, S, letter=None):
     for row in cap["layer"]:
         ax.plot(steps, row, color=FAINT, lw=0.35, alpha=0.55, zorder=1)
     ax.plot(steps, cap["rand"], color=BASE, lw=0.8, ls=(0, (1, 1.5)), zorder=2)
-    ax.plot(steps, cap["med"], color=S.accent, lw=1.1, ls=(0, (3.5, 1.6)), zorder=3,
+    ax.plot(steps, cap["med"], color=S.accent, lw=1.1, ls=(0, (3.5, 1.6)), zorder=5,  # 虚线放最上层，不会遮住蓝色实线
             marker="s", ms=2.3, mec="white", mew=0.35, markevery=mk)
     ax.plot(steps, cap["glob"], color=S.main, lw=1.5, zorder=4,
             marker="o", ms=2.6, mec="white", mew=0.4, markevery=mk)
