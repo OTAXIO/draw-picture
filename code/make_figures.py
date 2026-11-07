@@ -1,14 +1,14 @@
 """用真实数据重绘 Figure 1（跨 batch 低秩）与 Figure 2（固定 B0 的捕获率），每个子图单独输出。
 
-    python make_figures.py                                   # 默认：vivid 配色，生成四张 V_2 小图
+    python make_figures.py                                   # 默认：vivid 配色，生成四张 V_3 小图
     python make_figures.py --style morandi --panel-c outline # 换配色 / 换子图 c 画法
     python make_figures.py --labels                          # 小图左上角加 a / b / c
     python make_figures.py --options                         # 额外生成子图 c 九种画法的对比页
 
 输出：
-    figures/V_2/fig1/{pdf,svg,png}/fig1a, fig1b
-    figures/V_2/fig2/{pdf,svg,png}/fig2a, fig2b
-    figures/V_2/options/...（仅 --options）
+    figures/V_3/fig1/{pdf,svg,png}/fig1a, fig1b
+    figures/V_3/fig2/{pdf,svg,png}/fig2a, fig2b
+    figures/V_3/options/...（仅 --options）
 pdf、svg 为矢量图，png 为 300 dpi 预览。
 """
 import argparse
@@ -24,6 +24,7 @@ from bilozo_data import MODULE_LABELS, N_LAYERS, energy_grid, load_capture, load
 from bilozo_style import FIG_DIR, GROUPS, STYLES, panel_label, save, use_style
 
 RANK, TAU = 32, 0.9
+OUT = "V_3"            # 本轮输出目录；历史版本 V_0 / V_1 / V_2 保留不动
 ZH = dict(fontfamily="Microsoft YaHei")   # 仅用于对比页上的中文说明
 
 
@@ -309,52 +310,86 @@ def _label(ax, S, letter, x):
         panel_label(ax, letter, S, x=x)
 
 
+# 视觉层次（从强到弱）：中位数主线 > 25–75% 分位带 > 10–90% 分位带 > 单个矩阵 / 单层细线 > 参考线。
+INK = "#2B2B2B"          # 注释文字
+FAINT = "#B9BEC6"        # 单条矩阵 / 单层轨迹
+BASE = "#6E7681"         # 随机基线：比数据线弱，比背景线强
+
+
+def _log2_k(ax, kmax):
+    """横轴用 log2：k=1…128 的前几个奇异值是变化最剧烈的地方，线性轴会把它们挤成一根竖线。"""
+    ax.set_xscale("log", base=2)
+    ticks = [1, 2, 4, 8, 16, 32, 64, 128]
+    ax.set_xticks(ticks, [str(t) for t in ticks])
+    ax.xaxis.set_minor_locator(NullLocator())
+    ax.set_xlim(0.92, kmax * 1.08)
+
+
 def _matrix_distribution(ax, k, values, S):
-    """Show every matrix and its descriptive pointwise distribution."""
-    q25, median, q75 = np.quantile(values, [0.25, 0.5, 0.75], axis=0)
+    """196 条矩阵曲线作为极淡背景，叠加 10–90% 与 25–75% 两层分位带和中位数线。"""
+    q10, q25, med, q75, q90 = np.quantile(values, [0.10, 0.25, 0.5, 0.75, 0.90], axis=0)
     for row in values:
-        ax.plot(k, row, color=S.gray, lw=0.32, alpha=0.23)
-    ax.fill_between(k, q25, q75, color=S.main, alpha=0.13, linewidth=0)
-    ax.plot(k, median, color=S.main, lw=1.5, label="Matrix median")
-    ax.set_xlim(1, k[-1] + 2)
-    ax.set_xticks([1, 32, 64, 96, 128])
-    return median
+        ax.plot(k, row, color=FAINT, lw=0.25, alpha=0.35, zorder=1, solid_capstyle="round")
+    ax.fill_between(k, q10, q90, color=S.main, alpha=0.10, lw=0, zorder=2)
+    ax.fill_between(k, q25, q75, color=S.main, alpha=0.20, lw=0, zorder=2)
+    ax.plot(k, med, color=S.main, lw=1.5, zorder=4, solid_capstyle="round")
+    return med
+
+
+def _band_key(ax, S, x, y):
+    """三行小图例（中位数 / 25–75% / 10–90%），放在没有数据的角落，不加边框。"""
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    handles = [Line2D([], [], color=S.main, lw=1.5),
+               Patch(facecolor=S.main, alpha=0.30, lw=0),
+               Patch(facecolor=S.main, alpha=0.10, lw=0)]
+    ax.legend(handles, ["Median", "25–75%", "10–90%"], loc="upper right",
+              bbox_to_anchor=(x, y), fontsize=6, handlelength=1.3, handleheight=0.6,
+              handletextpad=0.4, labelspacing=0.25, borderaxespad=0)
 
 
 def fig1a(spectra, S, letter=None):
-    """Figure 1a：各矩阵的归一化奇异值谱，粗线为中位数。"""
+    """Figure 1a：每个矩阵先除以自身 σ1，再逐 k 统计跨矩阵分位数。"""
     fig, ax = _single(FIG1_AX)
     sv = np.array([d["sv"] / d["sv"][0] for d in spectra.values()])
     k = np.arange(1, sv.shape[1] + 1)
     ax.set_yscale("log")
     ax.yaxis.set_minor_locator(NullLocator())
     _matrix_distribution(ax, k, sv, S)
-    ax.tick_params(axis="y", labelsize=7.3)
-    ax.legend(loc="upper right", handlelength=1.25)
-    ax.set_xlabel("Singular-value index k"); ax.set_ylabel(r"$\sigma_k/\sigma_1$", fontsize=7.3)
+    _log2_k(ax, k[-1])
+    ax.set_ylim(8e-5, 1.4)
+    ax.set_yticks([1, 1e-1, 1e-2, 1e-3, 1e-4])
+    _band_key(ax, S, 1.0, 1.0)
+    ax.set_xlabel("Singular-value index $k$"); ax.set_ylabel(r"$\sigma_k/\sigma_1$")
     ax.set_title("Singular-value spectrum", loc="left")
     _label(ax, S, letter, -0.3)
     return fig
 
 
 def fig1b(spectra, S, letter=None):
-    """Figure 1b：累计能量曲线，τ 虚线与 k=32 竖线。"""
+    """Figure 1b：累计能量。参考线只保留 τ=0.9 与 k=32，数值注释集中在一处。"""
     fig, ax = _single(FIG1_AX)
     cum = np.array([d["cum"] for d in spectra.values()])
     k = np.arange(1, cum.shape[1] + 1)
-    median = _matrix_distribution(ax, k, cum, S)
-    at_rank = cum[:, RANK - 1]
-    reached = np.count_nonzero(at_rank >= TAU)
-    ax.axhline(TAU, color=S.ref, lw=0.6, ls=":")
-    ax.axvline(RANK, color=S.accent, lw=0.7, ls="--", zorder=1)
-    ax.plot(RANK, median[RANK - 1], "o", color=S.main, ms=3, zorder=4)
-    ax.text(126, TAU - 0.035, "90% threshold", ha="right", va="top", fontsize=6.5)
-    ax.text(39, 0.38, f"Median E(32): {median[RANK - 1]:.2%}", fontsize=7)
-    ax.text(39, 0.24, f"{reached}/{len(at_rank)} reach 90%", fontsize=7)
-    ax.text(39, 0.13, "at rank 32", fontsize=7)
-    ax.set_xlabel("Left rank k"); ax.set_ylabel("Cumulative energy")
+    ax.axhline(TAU, color=S.ref, lw=0.5, ls=(0, (1, 1.5)), zorder=3)
+    ax.axvline(RANK, color=S.accent, lw=0.7, ls=(0, (3, 2)), zorder=3)
+    med = _matrix_distribution(ax, k, cum, S)
+    _log2_k(ax, k[-1])
+    e32 = med[RANK - 1]
+    reached = int(np.count_nonzero(cum[:, RANK - 1] >= TAU))
+    ax.plot(RANK, e32, "o", ms=3.2, color=S.main, mec="white", mew=0.6, zorder=5)
+    # 左下角 y<0.15 没有任何曲线经过，注释放这里不遮挡数据
+    ax.text(1.12, 0.03, f"Median $E({RANK})$ = {e32:.3f}\n{reached}/{len(cum)} matrices reach {TAU}",
+            fontsize=6, color=INK, ha="left", va="bottom", linespacing=1.4)
+    # 阈值标签放在绘图区右侧外面，图内右下方有个别矩阵曲线经过
+    ax.text(1.015, TAU, r"$\tau$ = 0.9", transform=ax.get_yaxis_transform(), ha="left",
+            va="center", fontsize=6, color=S.ref, clip_on=False)
+    ax.text(RANK, 1.045, f"$k$ = {RANK}", ha="center", va="bottom", fontsize=6, color=S.accent,
+            clip_on=False)
+    ax.set_ylim(0, 1.03)
+    ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
+    ax.set_xlabel("Left rank $k$"); ax.set_ylabel("Cumulative energy")
     ax.set_title("Cumulative energy", loc="left")
-    ax.set_ylim(0, 1.055)
     _label(ax, S, letter, -0.3)
     return fig
 
@@ -370,49 +405,60 @@ def fig1c(spectra, S, variant="diverge", letter=None):
 
 
 def fig2a(cap, S, letter=None):
-    """Figure 2a：捕获率随训练步数的变化。step=1 处不画标记点，但保留 1→1000 的连线。"""
+    """Figure 2a：两条总体统计量 + 随机基线；28 层作为浅色背景。
+    step=1 的数值保留在折线里，只是不画标记点；纵轴固定 0–1。"""
     fig, ax = _single(FIG2_AX)
     steps = cap["steps"]
-    mk = slice(1, None)          # 从第二个点（step=1000）开始画标记
+    mk = slice(1, None)
     for row in cap["layer"]:
-        ax.plot(steps, row, color=S.gray, lw=0.35, alpha=0.45)
-    ax.plot(steps, cap["glob"], color=S.main, lw=1.5, marker="o", ms=2.5, markevery=mk)
-    ax.plot(steps, cap["med"], color=S.accent, lw=1.1, ls="--", marker="s", ms=2.2, markevery=mk)
-    ax.plot(steps, cap["rand"], color=S.ref, lw=0.7, ls="--")
-    for key, name, color, offset in (
-        ("med", "Matrix median", S.accent, 0),
-        ("glob", "Energy-weighted", S.main, 0),
-        ("rand", "Random expectation", S.ref, 5),
-    ):
-        value = cap[key][-1]
-        ax.annotate(f"{name}\n{value:.1%}", (steps[-1], value),
-                    xytext=(9, offset), textcoords="offset points", va="center",
-                    fontsize=6.5, annotation_clip=False,
-                    arrowprops=dict(arrowstyle="-", color=color, lw=0.6))
-    ax.set_xlabel("Optimizer step"); ax.set_ylabel(r"Gradient capture $\rho_t$", fontsize=7.3)
-    ax.set_title(r"Fixed initialization subspace $B_0$", loc="left")
-    ax.set_ylim(0, 1); ax.set_xlim(-400, steps[-1] + 400)
+        ax.plot(steps, row, color=FAINT, lw=0.35, alpha=0.55, zorder=1)
+    ax.plot(steps, cap["rand"], color=BASE, lw=0.8, ls=(0, (1, 1.5)), zorder=2)
+    ax.plot(steps, cap["med"], color=S.accent, lw=1.1, ls=(0, (3.5, 1.6)), zorder=3,
+            marker="s", ms=2.3, mec="white", mew=0.35, markevery=mk)
+    ax.plot(steps, cap["glob"], color=S.main, lw=1.5, zorder=4,
+            marker="o", ms=2.6, mec="white", mew=0.4, markevery=mk)
+    x_end = steps[-1] + 700
+    for key, name, color in (("med", "Matrix median", S.accent),
+                             ("glob", "Energy-weighted", S.main),
+                             ("rand", "Random subspace", BASE)):
+        v = cap[key][-1]
+        ax.text(x_end, v, f"{name}  {v:.2f}", color=color, fontsize=6.3, va="center", ha="left",
+                clip_on=False)
+    ax.text(x_end, float(np.max(cap["layer"][:, -1])), "Individual layers", color="#8C939C",
+            fontsize=6.3, va="center", ha="left", clip_on=False)
+    ax.set_xlim(-500, steps[-1] + 500)
     ax.set_xticks([0, 5000, 10000, 15000, 20000], ["0", "5k", "10k", "15k", "20k"])
+    ax.set_ylim(0, 1)
+    ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
+    ax.set_xlabel("Optimizer step"); ax.set_ylabel(r"Gradient capture $\rho_t$")
+    ax.set_title(r"Capture by the fixed subspace $B_0$", loc="left")
     _label(ax, S, letter, -0.14)
     return fig
 
 
 def fig2b(cap, S, letter=None):
-    """Figure 2b：逐层捕获率热力图（层 × 训练步）。"""
+    """Figure 2b：层 × checkpoint 热力图。格子边界取相邻 checkpoint 的中点，横轴是真实步数。"""
     fig, ax = _single(FIG2_AX)
     steps = cap["steps"]
-    midpoints = (steps[:-1] + steps[1:]) / 2
-    edges = np.r_[2 * steps[0] - midpoints[0], midpoints, 2 * steps[-1] - midpoints[-1]]
-    im = ax.pcolormesh(edges, np.arange(N_LAYERS + 1), cap["layer"],
-                       cmap=_truncate(S.seq, 0.90), norm=Normalize(0, 1),
-                       shading="flat", edgecolors="face", linewidth=0.1)
-    ticks = steps[::5]
-    ax.set_xticks(ticks, [f"{step // 1000}k" if step >= 1000 else str(step) for step in ticks])
-    _layer_ticks(ax); _heat_axes(ax)
-    ax.set_xlabel("Optimizer step")
+    mid = (steps[:-1] + steps[1:]) / 2
+    edges = np.r_[steps[0] - (mid[0] - steps[0]), mid, steps[-1] + (steps[-1] - mid[-1])]
+    edges[0] = max(edges[0], -500)
+    cm = _truncate(S.seq, 0.82)                       # 去掉最深的一段，避免上半部压成一整块深蓝
+    im = ax.pcolormesh(edges, np.arange(N_LAYERS + 1), cap["layer"], cmap=cm,
+                       norm=Normalize(0, 1), shading="flat", edgecolors="face", linewidth=0.1)
+    ax.set_xlim(edges[0], edges[-1]); ax.set_ylim(0, N_LAYERS)
+    ticks = [1, 5000, 10000, 15000, 20000]
+    ax.set_xticks(ticks, ["1", "5k", "10k", "15k", "20k"])
+    ax.set_yticks(np.array([0, 9, 18, 27]) + 0.5, ["0", "9", "18", "27"])
+    _heat_axes(ax)
+    ax.set_xlabel("Optimizer step"); ax.set_ylabel("Decoder layer")
     ax.set_title("Capture by decoder layer", loc="left")
-    colorbar = _colorbar(fig, ax, im, r"$\rho_t$", ticks=[0, 0.25, 0.5, 0.75, 1])
-    colorbar.ax.yaxis.label.set_fontsize(7.3)
+    cax = ax.inset_axes([1.03, 0.0, 0.035, 1.0])
+    cb = fig.colorbar(im, cax=cax, ticks=[0, 0.25, 0.5, 0.75, 1])
+    cb.set_label(r"$\rho_t$", labelpad=3)
+    cb.solids.set_rasterized(False); cb.outline.set_visible(False)
+    cb.ax.tick_params(length=1.5, width=0.4)
+    cax.grid(False)
     _label(ax, S, letter, -0.14)
     return fig
 
@@ -443,7 +489,7 @@ def main():
     S = use_style(a.style)
     lab = (lambda c: c) if a.labels else (lambda c: None)
 
-    d1, d2 = FIG_DIR / "V_2" / "fig1", FIG_DIR / "V_2" / "fig2"
+    d1, d2 = FIG_DIR / OUT / "fig1", FIG_DIR / OUT / "fig2"
     save(fig1a(spectra, S, lab("a")), "fig1a", d1)
     save(fig1b(spectra, S, lab("b")), "fig1b", d1)
     if a.panel_c:
@@ -451,7 +497,7 @@ def main():
     save(fig2a(cap, S, lab("a")), "fig2a", d2)
     save(fig2b(cap, S, lab("b")), "fig2b", d2)
     if a.options:
-        save(options_sheet(spectra, S), f"fig1c_options_{a.style}", FIG_DIR / "V_2" / "options")
+        save(options_sheet(spectra, S), f"fig1c_options_{a.style}", FIG_DIR / OUT / "options")
     print("done")
 
 

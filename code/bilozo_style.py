@@ -138,7 +138,9 @@ def use_style(name="sans"):
     S = Style(name=name, **cfg)
     mpl.rcParams.update({
         "font.family": S.font,
-        "mathtext.fontset": "stix" if S.font == "Times New Roman" else "dejavusans",
+        # 公式与正文用同一字体，避免 E(32)、ρ_t 等符号混进 DejaVu 字形
+        "mathtext.fontset": "stix" if S.font == "Times New Roman" else "custom",
+        "mathtext.rm": S.font, "mathtext.it": f"{S.font}:italic", "mathtext.bf": f"{S.font}:bold",
         "font.size": 7,
         "axes.titlesize": 7.5,
         "axes.labelsize": 7,
