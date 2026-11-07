@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+/figures/V_0/
+/figures/学长的参考图/
