@@ -262,11 +262,11 @@ plt.rcParams["axes.grid"] = True
 
 | Figure 1a | Figure 1b | Figure 1c |
 |---|---|---|
-| ![](figures/fig1/png/fig1a.png) | ![](figures/fig1/png/fig1b.png) | ![](figures/fig1/png/fig1c.png) |
+| ![](figures/V_1/fig1/png/fig1a.png) | ![](figures/V_1/fig1/png/fig1b.png) | ![](figures/V_1/fig1/png/fig1c.png) |
 
 | Figure 2a | Figure 2b |
 |---|---|
-| ![](figures/fig2/png/fig2a.png) | ![](figures/fig2/png/fig2b.png) |
+| ![](figures/V_1/fig2/png/fig2a.png) | ![](figures/V_1/fig2/png/fig2b.png) |
 
 ## 矢量图检查
 
